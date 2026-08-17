@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#e9e9e5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#14130f" media="(prefers-color-scheme: dark)" />
-    <title>Bar Soutsu 勤怠管理（見本）</title>
+    <title>Bar Soutsu 勤怠管理</title>
     <style>
       /* ── Bar Soutsu 共通テーマの色（見本なので単体HTMLに直接埋め込み） ── */
       :root {
@@ -257,9 +257,8 @@
   </head>
   <body>
     <div class="wrap">
-      <div class="demo-banner">
-        🧪 これは<b>動く見本（デモ）</b>です。データはこの端末の中だけに仮保存され、外部には一切送られません。
-        本番では裏側でGoogleスプレッドシートとつなぎ、給料表示はあなたのGoogleログイン確認後だけ表示されます。
+      <div class="demo-banner" id="demoBanner">
+        🧪 <b>未接続（デモ）</b>です。データはこの端末の中だけに仮保存されます。ログイン画面の「接続設定」で共有URLを設定すると、みんなで共有できます。
       </div>
 
       <!-- ログイン -->
@@ -402,7 +401,7 @@
           <div class="hint" id="manageHint">名前・時給を変えたら各行の「保存」を押してください。時給を 0 にすると給料は出さず「記録のみ」になります。役割を「オーナー」にすると、その人も給料を見られます。</div>
         </div>
 
-        <div class="foot">Bar Soutsu ツールズ ｜ 勤怠管理 見本版</div>
+        <div class="foot">Bar Soutsu ツールズ ｜ 勤怠管理</div>
       </section>
     </div>
 
@@ -480,7 +479,9 @@
 
       // ═══════════════ サーバー連携（本番：Googleスプレッドシート）═══════════════
       //  接続先URLは各端末で最初に1回だけ設定。未設定ならローカルのみのデモ動作。
-      var GAS_URL = store.read("gas_url", "") || "";
+      // 本番の接続先（Bar Soutsu 勤怠データ）。各端末の「接続設定」で別URLに上書きも可能。
+      var BAKED_URL = "https://script.google.com/macros/s/AKfycbyC13mL8XYJM77AYxv5U-UbSVMn9jOxVV33CmsjH_1aes6xsZUZ_WaCClpcHVrH4PLYOA/exec";
+      var GAS_URL = store.read("gas_url", "") || BAKED_URL;
       var CONNECTED = !!GAS_URL;
       var salaryUnlocked = false;   // 給料の暗証番号(PIN)を通したか
       var _pin = "";                // 通ったPINを保持（メンバー編集の保存に使う）
@@ -550,7 +551,10 @@
         else { toast("ローカル（デモ）に戻しました"); renderLogin(); }
       }
       function pushStaff() { if (CONNECTED) pushSafe("saveStaff", { pin: _pin, staff: STAFF }); }
-      function updateConnBadge() { var b = document.getElementById("connBadge"); if (b) b.textContent = CONNECTED ? "🟢 接続済み" : "⚪ ローカル(デモ)"; }
+      function updateConnBadge() {
+        var b = document.getElementById("connBadge"); if (b) b.textContent = CONNECTED ? "🟢 接続済み" : "⚪ ローカル(デモ)";
+        var db = document.getElementById("demoBanner"); if (db) db.style.display = CONNECTED ? "none" : "block";
+      }
       function toast(msg) {
         var t = document.getElementById("toast"); if (!t) { return; }
         t.textContent = msg; t.classList.add("show");
