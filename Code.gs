@@ -24,9 +24,13 @@ function doPost(e) { return handle(e); }
 
 // 入口：アプリからの指示(action)を受けて処理を振り分ける
 function handle(e) {
-  // 同時アクセスでデータが壊れないよう、処理中は鍵をかける
+  // 同時アクセスでデータが壊れないよう、処理中は必ず鍵をかける。
+  // 鍵が取れなかったら「混雑中」を返して処理しない（無施錠で書いてデータを壊さない）。
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(8000); } catch (lockErr) { /* 取得できなくても続行 */ }
+  if (!lock.tryLock(15000)) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: "混雑しています。少し待って再度お試しください。" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 
   var req = {};
   try {
@@ -70,9 +74,11 @@ function ensureSheets() {
   var s = ss();
   Object.keys(SHEETS).forEach(function (name) {
     var sh = s.getSheetByName(name);
-    if (!sh) { sh = s.insertSheet(name); }
-    // 全体を「文字列」書式にしてから使う
-    sh.getRange(1, 1, sh.getMaxRows(), SHEETS[name].length).setNumberFormat("@");
+    if (!sh) {
+      sh = s.insertSheet(name);
+      // 新規シートだけ全体を「文字列」書式にする（毎回やると重く、ロック保持が長くなるため）
+      sh.getRange(1, 1, sh.getMaxRows(), SHEETS[name].length).setNumberFormat("@");
+    }
     if (sh.getLastRow() === 0) sh.getRange(1, 1, 1, SHEETS[name].length).setValues([SHEETS[name]]);
   });
   var setSh = s.getSheetByName("settings");
