@@ -552,6 +552,23 @@
         pullAll().then(function () { return salaryUnlocked ? fetchWages() : null; }).then(function () { render(); toast("最新に更新しました"); })
           .catch(function () { toast("更新に失敗しました"); });
       }
+      // 自動更新：60秒ごとに最新を取得し、変化があれば画面を更新（他の人の入力が自然に反映される）
+      var _autoTimer = null;
+      function startAutoRefresh() {
+        if (_autoTimer) return;
+        _autoTimer = setInterval(function () {
+          if (!CONNECTED || !currentUser) return;
+          if (typeof document.hidden !== "undefined" && document.hidden) return;   // 非表示タブでは省略
+          if (pendingPush > 0) return;                                             // 送信中は避ける
+          if (document.getElementById("modalBg").classList.contains("show")) return;
+          if (document.getElementById("pinModalBg").classList.contains("show")) return;
+          if (selectMode) return;                                                  // 選択作業中は邪魔しない
+          var sig = function () { return JSON.stringify(_shifts) + "|" + JSON.stringify(_notes) + "|" + STAFF.map(function (p) { return p.id + p.name + p.role + p.worker + p.owner; }).join(","); };
+          var before = sig();
+          flushRetry();
+          pullAll().then(function () { if (sig() !== before) render(); }).catch(function () {});
+        }, 60000);
+      }
       // 給料の暗証番号（PIN）入力：アプリ内モーダルで受け付ける（スマホでも確実・エラーも画面内に表示）
       function openPinModal() {
         var pe = document.getElementById("pinError"); if (pe) pe.textContent = "";
@@ -1204,6 +1221,7 @@
       updateConnBadge();
       // 接続済みなら、起動時に最新データを取得（失敗してもローカル表示で続行）
       if (CONNECTED) { pullAll().then(function () { renderLogin(); updateConnBadge(); }).catch(function () { toast("接続に失敗。ローカル表示中です。"); }); }
+      startAutoRefresh();  // 60秒ごとの自動更新を開始
     </script>
   </body>
 </html>
