@@ -147,10 +147,11 @@
       .me-row .namecell { color: var(--green); }
 
       /* ── 月カレンダー ── */
-      .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; padding: 12px; }
+      .calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; padding: 12px; }
       .cal-dow { text-align: center; font-size: 12px; color: var(--muted); padding: 2px 0; font-weight: 700; }
       .cal-dow.sat { color: var(--blue); } .cal-dow.sun { color: var(--red); }
-      .cal-cell { min-height: 82px; border: 1px solid var(--line); border-radius: 10px; padding: 5px 4px; background: var(--field); display: flex; flex-direction: column; gap: 3px; cursor: pointer; transition: .12s; }
+      .cal-cell { min-width: 0; min-height: 82px; border: 1px solid var(--line); border-radius: 10px; padding: 5px 4px; background: var(--field); display: flex; flex-direction: column; gap: 3px; cursor: pointer; transition: .12s; overflow: hidden; }
+      .cal-cell > * { min-width: 0; max-width: 100%; }
       .cal-cell.blank { background: transparent; border: none; cursor: default; }
       .cal-cell:hover:not(.blank) { background: var(--field-active); }
       .cal-cell.selected { outline: 2px solid var(--gold); border-color: var(--gold); background: var(--gold-soft); }
@@ -250,8 +251,10 @@
         .brand h1 { font-size: 18px; }
         .wrap { padding: 14px 10px 56px; }
         .navctrls .label { min-width: 150px; font-size: 14px; }
-        .cal-cell { min-height: 70px; }
-        .calendar { gap: 4px; padding: 8px; }
+        .cal-cell { min-height: 68px; padding: 4px 2px; }
+        .calendar { gap: 3px; padding: 8px 6px; }
+        .cal-date { font-size: 11px; }
+        .chip { font-size: 9px; padding: 1px 3px; border-left-width: 3px; }
       }
     </style>
   </head>
@@ -384,6 +387,7 @@
           </div>
           <div id="salaryTableWrap" class="table-scroll"><table class="salary" id="salaryTable"></table></div>
           <div class="hint" id="salaryHint">給料 = 通常時間 × 時給 ＋ 深夜時間 × 時給 × 1.25（<b>22:00〜翌5:00は深夜割増+25%</b>）。実働は<b>休憩を差し引いた</b>時間です。締め日で区切った期間の集計で、確定前の希望も参考として含みます。残業割増・端数調整は本番で追加できます。</div>
+          <div id="forgetPinWrap" style="padding:0 16px 14px"><button class="small ghost" id="forgetPin">🔓 給料を隠す（この端末のPIN保存も解除）</button></div>
         </div>
 
         <!-- メンバー管理（オーナー専用） -->
@@ -406,6 +410,21 @@
     </div>
 
     <div id="toast" class="toast"></div>
+
+    <!-- 暗証番号(PIN)入力モーダル -->
+    <div class="modal-bg" id="pinModalBg">
+      <div class="modal">
+        <h3>🔒 暗証番号（PIN）</h3>
+        <p class="msub">オーナー専用です。給料を表示します。</p>
+        <input type="password" inputmode="numeric" autocomplete="off" id="pinInput" placeholder="暗証番号" />
+        <label class="off-toggle" style="margin-top:12px"><input type="checkbox" id="pinRemember" checked /> <span style="color:var(--text);font-size:14px">この端末に保存して次回から自動で開く</span></label>
+        <div id="pinError" style="color:var(--red);font-size:13px;min-height:18px;margin-top:8px"></div>
+        <div class="actions">
+          <button class="ghost" id="pinCancel">キャンセル</button>
+          <button class="primary" id="pinOk">表示する</button>
+        </div>
+      </div>
+    </div>
 
     <!-- シフト入力モーダル -->
     <div class="modal-bg" id="modalBg">
@@ -484,7 +503,7 @@
       var GAS_URL = store.read("gas_url", "") || BAKED_URL;
       var CONNECTED = !!GAS_URL;
       var salaryUnlocked = false;   // 給料の暗証番号(PIN)を通したか
-      var _pin = "";                // 通ったPINを保持（メンバー編集の保存に使う）
+      var _pin = store.read("owner_pin", "") || "";  // 通ったPIN（メンバー編集の保存に使う／端末保存にも対応）
       function salaryVisible() { return !CONNECTED || salaryUnlocked; }
       function api(action, payload) {
         if (!GAS_URL) return Promise.reject(new Error("未接続"));
@@ -533,13 +552,41 @@
         pullAll().then(function () { return salaryUnlocked ? fetchWages() : null; }).then(function () { render(); toast("最新に更新しました"); })
           .catch(function () { toast("更新に失敗しました"); });
       }
-      function unlockSalary() {
-        var pin = prompt("給料を表示する暗証番号（PIN）を入力してください");
-        if (pin == null) return;
+      // 給料の暗証番号（PIN）入力：アプリ内モーダルで受け付ける（スマホでも確実・エラーも画面内に表示）
+      function openPinModal() {
+        var pe = document.getElementById("pinError"); if (pe) pe.textContent = "";
+        var pi = document.getElementById("pinInput"); if (pi) pi.value = "";
+        document.getElementById("pinModalBg").classList.add("show");
+        setTimeout(function () { if (pi) pi.focus(); }, 60);
+      }
+      function closePinModal() { document.getElementById("pinModalBg").classList.remove("show"); }
+      function submitPin() {
+        var pin = (document.getElementById("pinInput").value || "").trim();
+        var pe = document.getElementById("pinError");
+        if (!pin) { pe.textContent = "暗証番号を入力してください"; return; }
+        pe.textContent = "確認中…";
         api("salary", { pin: pin }).then(function (res) {
-          if (res && res.ok) { _pin = pin; salaryUnlocked = true; var w = res.wages || {}; STAFF.forEach(function (p) { p.wage = w[p.id] || 0; }); render(); }
-          else { alert((res && res.error) || "暗証番号が違います"); }
-        }).catch(function () { alert("接続エラー。接続先URLをご確認ください。"); });
+          if (res && res.ok) {
+            _pin = pin; salaryUnlocked = true;
+            var w = res.wages || {}; STAFF.forEach(function (p) { p.wage = w[p.id] || 0; });
+            if (document.getElementById("pinRemember").checked) store.write("owner_pin", pin); else store.write("owner_pin", "");
+            closePinModal(); render(); toast("給料を表示しました");
+          } else { pe.textContent = (res && res.error) || "暗証番号が違います"; }
+        }).catch(function () { pe.textContent = "接続エラー。通信状況をご確認ください。"; });
+      }
+      // 保存済みPINがあれば自動で解錠する（オーナーのログイン時のみ呼ぶ）
+      function tryAutoUnlock() {
+        var saved = store.read("owner_pin", "") || "";
+        if (!CONNECTED || !saved || salaryUnlocked) return Promise.resolve();
+        return api("salary", { pin: saved }).then(function (res) {
+          if (res && res.ok) { _pin = saved; salaryUnlocked = true; var w = res.wages || {}; STAFF.forEach(function (p) { p.wage = w[p.id] || 0; }); render(); }
+          else { store.write("owner_pin", ""); } // 保存PINが無効ならクリア（PIN変更後など）
+        }).catch(function () {});
+      }
+      function forgetPin() {
+        store.write("owner_pin", ""); _pin = ""; salaryUnlocked = false;
+        if (CONNECTED) STAFF.forEach(function (p) { p.wage = 0; });
+        render(); toast("この端末のPIN保存を解除しました");
       }
       function setupConnection() {
         var url = prompt("接続先URL（オーナーから共有されたURL）を貼り付けてください。\n空欄にするとローカル（デモ）に戻ります。", GAS_URL || "");
@@ -670,7 +717,7 @@
         document.getElementById("appView").style.display = "block";
         exitSelectMode(); render();
         // 接続中なら最新データを取り直してから表示を更新（currentUserの取り直しはpullAll内で実施）
-        if (CONNECTED) { pullAll().then(function () { render(); }).catch(function () { toast("最新データの取得に失敗しました"); }); }
+        if (CONNECTED) { pullAll().then(function () { render(); if (currentUser && currentUser.owner) return tryAutoUnlock(); }).catch(function () { toast("最新データの取得に失敗しました"); }); }
       }
       function logout() {
         currentUser = null;
@@ -716,6 +763,7 @@
           document.getElementById("manageList").style.display = vis ? "block" : "none";
           document.getElementById("manageAddWrap").style.display = vis ? "block" : "none";
           document.getElementById("manageHint").style.display = vis ? "block" : "none";
+          document.getElementById("forgetPinWrap").style.display = vis ? "block" : "none";
           if (vis) { renderSalary(); renderManage(); }
         }
 
@@ -1135,8 +1183,13 @@
       document.getElementById("addMember").onclick = addMember;
       document.getElementById("refreshBtn").onclick = refresh;
       document.getElementById("setupBtn").onclick = setupConnection;
-      document.getElementById("unlockBtn").onclick = unlockSalary;
-      document.getElementById("unlockBtn2").onclick = unlockSalary;
+      document.getElementById("unlockBtn").onclick = openPinModal;
+      document.getElementById("unlockBtn2").onclick = openPinModal;
+      document.getElementById("pinOk").onclick = submitPin;
+      document.getElementById("pinCancel").onclick = closePinModal;
+      document.getElementById("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") submitPin(); });
+      document.getElementById("pinModalBg").onclick = function (e) { if (e.target === this) closePinModal(); };
+      document.getElementById("forgetPin").onclick = forgetPin;
 
       // ═══════════════ 起動 ═══════════════
       fillHM(document.getElementById("startH"), document.getElementById("startM"));
