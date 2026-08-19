@@ -54,6 +54,8 @@ function handle(e) {
   } catch (err) {
     out = { ok: false, error: String(err) };
   } finally {
+    // 書き込みを確実にシートへ反映してから鍵を返す（次の並行リクエストが古い行を読んで行ズレ削除するのを防ぐ）
+    try { SpreadsheetApp.flush(); } catch (e3) {}
     try { lock.releaseLock(); } catch (e2) {}
   }
   return ContentService.createTextOutput(JSON.stringify(out))
